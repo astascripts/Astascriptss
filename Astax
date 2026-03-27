@@ -1,0 +1,260 @@
+-- PvP Script - Gruda na FRENTE + Auto Bat + ESP
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+-- GUI
+local s = Instance.new("ScreenGui")
+s.Parent = game.CoreGui
+s.Name = "PvPScript"
+
+local f = Instance.new("Frame")
+f.Size = UDim2.new(0, 200, 0, 210)
+f.Position = UDim2.new(0.5, -100, 0.5, -105)
+f.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
+f.BackgroundTransparency = 0.1
+f.Active = true
+f.Draggable = true
+f.BorderSizePixel = 0
+f.Parent = s
+
+local titulo = Instance.new("TextLabel")
+titulo.Size = UDim2.new(1, 0, 0, 28)
+titulo.BackgroundColor3 = Color3.new(0.1, 0.1, 0.1)
+titulo.Text = "PvP Script"
+titulo.TextColor3 = Color3.new(1, 1, 1)
+titulo.Font = Enum.Font.GothamBold
+titulo.TextSize = 14
+titulo.Parent = f
+
+-- Função para criar botões toggle
+local function criarToggle(texto, yPos, callback)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0.9, 0, 0, 32)
+    btn.Position = UDim2.new(0.05, 0, 0, yPos)
+    btn.BackgroundColor3 = Color3.new(0.3, 0.3, 0.3)
+    btn.Text = texto
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    btn.Font = Enum.Font.Gotham
+    btn.TextSize = 13
+    btn.BorderSizePixel = 0
+    btn.Parent = f
+    local ativo = false
+    btn.MouseButton1Click:Connect(function()
+        ativo = not ativo
+        btn.BackgroundColor3 = ativo and Color3.new(0.7, 0.2, 0.2) or Color3.new(0.3, 0.3, 0.3)
+        btn.Text = ativo and (texto .. " ON") or texto
+        callback(ativo)
+    end)
+    return function() return ativo end
+end
+
+-- Configurações
+local DISTANCIA_FRENTE = 2.5   -- Distância que mantém do inimigo (ajuste conforme desejar)
+local VELOCIDADE_MAX = 80
+
+-- Variáveis de estado
+local moveAtivo = false
+local autoBatAtivo = false
+local bodyVelocity = nil
+
+-- Função para obter o inimigo mais próximo
+local function getNearestEnemy()
+    local player = Players.LocalPlayer
+    local char = player.Character
+    if not char then return nil end
+    local myPos = char:FindFirstChild("HumanoidRootPart") and char.HumanoidRootPart.Position
+    if not myPos then return nil end
+    local nearest, minDist = nil, math.huge
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= player then
+            local targetChar = plr.Character
+            if targetChar and targetChar:FindFirstChild("HumanoidRootPart") then
+                local dist = (myPos - targetChar.HumanoidRootPart.Position).Magnitude
+                if dist < minDist then
+                    minDist = dist
+                    nearest = targetChar
+                end
+            end
+        end
+    end
+    return nearest, minDist
+end
+
+-- Aplica ou remove o BodyVelocity
+local function aplicarMovimento(velocidade, direcao, rootPart)
+    if not bodyVelocity then
+        bodyVelocity = Instance.new("BodyVelocity")
+        bodyVelocity.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+        bodyVelocity.Parent = rootPart
+    end
+    bodyVelocity.Velocity = direcao * velocidade
+end
+
+local function removerMovimento()
+    if bodyVelocity then
+        bodyVelocity:Destroy()
+        bodyVelocity = nil
+    end
+    local char = Players.LocalPlayer.Character
+    if char then
+        local hum = char:FindFirstChild("Humanoid")
+        if hum then
+            hum.WalkSpeed = 16
+            hum.AutoRotate = true
+        end
+    end
+end
+
+-- ===== BOTÕES =====
+criarToggle("Mover + Grudar na Frente", 36, function(ativo)
+    moveAtivo = ativo
+    if not ativo and not autoBatAtivo then removerMovimento() end
+end)
+
+criarToggle("Auto Bat (Move + Bater)", 76, function(ativo)
+    autoBatAtivo = ativo
+    if not ativo and not moveAtivo then removerMovimento() end
+end)
+
+-- Loop principal de movimento (agora gruda na FRENTE)
+RunService.RenderStepped:Connect(function()
+    local deveMover = moveAtivo or autoBatAtivo
+    if not deveMover then return end
+
+    local char = Players.LocalPlayer.Character
+    if not char then return end
+    local hum = char:FindFirstChild("Humanoid")
+    local rootPart = char:FindFirstChild("HumanoidRootPart")
+    if not hum or not rootPart then return end
+
+    local alvo = getNearestEnemy()
+    if alvo and alvo:FindFirstChild("HumanoidRootPart") then
+        local alvoPos = alvo.HumanoidRootPart.Position
+        local minhaPos = rootPart.Position
+
+        -- Direção horizontal do jogador para o inimigo
+        local direcao = (alvoPos - minhaPos)
+        direcao = Vector3.new(direcao.X, 0, direcao.Z).unit
+
+        -- POSIÇÃO DESEJADA: NA FRENTE DO INIMIGO (direção do jogador para o inimigo)
+        -- Antes era alvoPos - direcao * DISTANCIA (colocava atrás)
+        -- Agora é alvoPos + direcao * DISTANCIA (coloca na frente)
+        local posDesejada = alvoPos + direcao * DISTANCIA_FRENTE
+
+        -- Vetor de correção (para onde o jogador precisa se mover)
+        local correcao = posDesejada - minhaPos
+        correcao = Vector3.new(correcao.X, 0, correcao.Z)
+
+        local margem = 0.3
+        if correcao.Magnitude > margem then
+            local dirMov = correcao.unit
+            -- Velocidade dinâmica: quanto mais longe, mais rápido (máx 80)
+            local velocidade = math.min(VELOCIDADE_MAX, correcao.Magnitude * 30)
+            aplicarMovimento(velocidade, dirMov, rootPart)
+        else
+            removerMovimento()  -- já está na posição ideal
+        end
+
+        -- Rotação: olha para o inimigo (no eixo Y)
+        local novaCFrame = CFrame.new(rootPart.Position, Vector3.new(alvoPos.X, rootPart.Position.Y, alvoPos.Z))
+        rootPart.CFrame = novaCFrame
+
+        hum.AutoRotate = false
+        hum.WalkSpeed = VELOCIDADE_MAX
+    else
+        removerMovimento()
+    end
+end)
+
+-- Auto Bat
+RunService.RenderStepped:Connect(function()
+    if not autoBatAtivo then return end
+    local char = Players.LocalPlayer.Character
+    if not char then return end
+    local tool = char:FindFirstChildWhichIsA("Tool")
+    if not tool then
+        tool = Players.LocalPlayer.Backpack:FindFirstChildWhichIsA("Tool")
+        if tool then tool.Parent = char end
+    end
+    if tool then
+        tool:Activate()
+    end
+end)
+
+-- ===== ESP =====
+local espAtivo = false
+local highlightFolder = nil
+criarToggle("ESP", 116, function(ativo)
+    espAtivo = ativo
+    if ativo then
+        if not highlightFolder then
+            highlightFolder = Instance.new("Folder")
+            highlightFolder.Name = "ESP_Highlights"
+            highlightFolder.Parent = game.CoreGui
+        end
+        for _, plr in pairs(Players:GetPlayers()) do
+            if plr ~= Players.LocalPlayer then
+                local char = plr.Character
+                if char then
+                    local hl = Instance.new("Highlight")
+                    hl.Name = "ESP_" .. plr.Name
+                    hl.FillColor = Color3.new(1, 0, 0)
+                    hl.OutlineColor = Color3.new(1, 0, 0)
+                    hl.FillTransparency = 0.5
+                    hl.OutlineTransparency = 0.2
+                    hl.Adornee = char
+                    hl.Parent = highlightFolder
+                end
+            end
+        end
+        Players.PlayerAdded:Connect(function(plr)
+            if espAtivo and plr ~= Players.LocalPlayer then
+                plr.CharacterAdded:Connect(function(char)
+                    local hl = Instance.new("Highlight")
+                    hl.Name = "ESP_" .. plr.Name
+                    hl.FillColor = Color3.new(1, 0, 0)
+                    hl.OutlineColor = Color3.new(1, 0, 0)
+                    hl.FillTransparency = 0.5
+                    hl.OutlineTransparency = 0.2
+                    hl.Adornee = char
+                    hl.Parent = highlightFolder
+                end)
+            end
+        end)
+    else
+        if highlightFolder then
+            highlightFolder:Destroy()
+            highlightFolder = nil
+        end
+    end
+end)
+
+-- ===== REMOVER ÁGUA =====
+local aguaBtn = Instance.new("TextButton")
+aguaBtn.Size = UDim2.new(0.9, 0, 0, 32)
+aguaBtn.Position = UDim2.new(0.05, 0, 0, 156)
+aguaBtn.BackgroundColor3 = Color3.new(0.3, 0.3, 0.3)
+aguaBtn.Text = "Remover Água"
+aguaBtn.TextColor3 = Color3.new(1, 1, 1)
+aguaBtn.Font = Enum.Font.Gotham
+aguaBtn.TextSize = 13
+aguaBtn.BorderSizePixel = 0
+aguaBtn.Parent = f
+aguaBtn.MouseButton1Click:Connect(function()
+    local waterParts = {}
+    for _, v in pairs(game.Workspace:GetDescendants()) do
+        if v:IsA("BasePart") and (v.Name:lower():find("water") or v.Name:lower():find("wave")) then
+            table.insert(waterParts, v)
+        end
+    end
+    local waveM = game.Workspace:FindFirstChild("WaveM")
+    if waveM then table.insert(waterParts, waveM) end
+    for _, part in ipairs(waterParts) do
+        part:Destroy()
+    end
+    aguaBtn.BackgroundColor3 = Color3.new(0.7, 0.2, 0.2)
+    aguaBtn.Text = "Água Removida"
+    print("Água removida.")
+end)
+
+print("Script carregado! Agora o personagem gruda na FRENTE do inimigo, de cara com ele.")
